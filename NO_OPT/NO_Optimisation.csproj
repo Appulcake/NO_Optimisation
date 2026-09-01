@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Game_Path>Y:\Games\steamapps\common\Nuclear Option\NuclearOption_Data\Managed</Game_Path>
+        <ModDestination>$(Game_Path)\..\..\BepInEx\plugins</ModDestination>
+
+        <TargetFramework>net48</TargetFramework>
+        <AssemblyName>Apul.NO_Optimisation</AssemblyName>
+        <Product>NO_Optimisation</Product>
+        <PackageId>Apul.NO_Optimisation</PackageId>
+        <Title>NO_Optimisation</Title>
+        <Description>A mod to optimise Nuclear Option.</Description>
+        <Version>0.34.2.1</Version>
+        <Authors>Appulcake</Authors>
+        <PackageTags>nuclear;option;bepinex</PackageTags>
+
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageProjectUrl>https://github.com/Appulcake/NO_Server_Balancer</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/Appulcake/NO_Server_Balancer</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+
+        <RestoreAdditionalProjectSources>
+            https://api.nuget.org/v3/index.json;
+            https://nuget.bepinex.dev/v3/index.json;
+            https://nuget.samboy.dev/v3/index.json
+        </RestoreAdditionalProjectSources>
+        <RootNamespace>NO_OPT</RootNamespace>
+        <NoWarn>$(NoWarn);CS0436</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3" PrivateAssets="all" ExcludeAssets="runtime"/>
+        <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all"/>
+        <PackageReference Include="BepInEx.Core" Version="5.*"/>
+        <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*"/>
+        <PackageReference Include="UnityEngine.Modules" Version="2022.3.62" IncludeAssets="compile"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Reference Include="Assembly-CSharp" HintPath="$(Game_Path)\Assembly-CSharp.dll" Private="False" Publicize="True">
+            <Aliases>global,NuclearOption</Aliases>
+        </Reference>
+        <Reference Include="Mirage" HintPath="$(Game_Path)\Mirage.dll" Private="False" Publicize="True"/>
+        <Reference Include="Rewired_Core" HintPath="$(Game_Path)\Rewired_Core.dll" Private="False" Publicize="True"/>
+        <Reference Include="Unity.RenderPipelines.Universal.Runtime" HintPath="$(Game_Path)\Unity.RenderPipelines.Universal.Runtime.dll" Private="False" Publicize="True"/>
+        <Reference Include="Unity.RenderPipelines.Core.Runtime" HintPath="$(Game_Path)\Unity.RenderPipelines.Core.Runtime.dll" Private="False" Publicize="True"/>
+        <Reference Include="UniTask" HintPath="$(Game_Path)\UniTask.dll" Private="False" Publicize="True"/>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
+        <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.2" PrivateAssets="all"/>
+    </ItemGroup>
+
+    <Target Name="PostBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(ModDestination)' != ''">
+        <!-- Create an item for all .dll files in the output directory -->
+        <CreateItem Include="$(OutDir)*.dll">
+            <Output TaskParameter="Include" ItemName="DllFiles"/>
+        </CreateItem>
+
+        <!-- Copy the build output -->
+        <Message Text="Copying build output assemblies from $(OutDir)*.dll to Y:\NOServers\ApulTest1\BepInEx\plugins\$(AssemblyName)" Importance="high"/>
+        <Copy SourceFiles="@(DllFiles)" DestinationFolder="Y:\NOServer\servers\ApulTest1\BepInEx\plugins\$(AssemblyName)"/>
+    </Target>
+</Project>
