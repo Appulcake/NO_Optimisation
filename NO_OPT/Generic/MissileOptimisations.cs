@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
@@ -24,10 +25,14 @@ internal static class MissileOptimisations
     private static int _nextGuidanceBucket;
     private static int _nextMassBucket;
     
+    private static bool _cruiseRetargeting;
+    private static float _cruiseRetargetRangeSq;
+    
     internal static void Apply(Harmony harmony)
     {
         CacheSettings();
         Patch(harmony, typeof(CruiseMissileFormationPatches));
+        Patch(harmony, typeof(CruiseMissileRetargetPatches));
         Patch(harmony, typeof(MissileEnvironmentPatches));
         Patch(harmony, typeof(MissileLongRangeGuidancePatches));
         Patch(harmony, typeof(MissileMotorPatches));
@@ -39,21 +44,23 @@ internal static class MissileOptimisations
         var launchProximity = Mathf.Max(Plugin.GenericMissileOptimisation_LaunchProximity.Value, 0f);
         _launchProximitySq = launchProximity * launchProximity;
         _etaWindow = Mathf.Max(Plugin.GenericMissileOptimisation_ETAWindow.Value, 0f);
+        
+        _cruiseRetargeting = Plugin.GenericMissileOptimisation_CruiseRetargeting.Value;
+        var retargetRange = Mathf.Max(Plugin.GenericMissileOptimisation_CruiseRetargetRange.Value, 0f);
+        _cruiseRetargetRangeSq = retargetRange * retargetRange;
     }
     
     private static void Patch(Harmony harmony, Type patchType)
     {
         try
         {
-            var patched = harmony
-                .CreateClassProcessor(patchType)
-                .Patch();
-            
-            Plugin.Logger.LogInfo($"Applied {patchType.Name}: {patched?.Count ?? 0} patched method(s).");
+            var patched = harmony.CreateClassProcessor(patchType).Patch();
+            Plugin.Debug($"Applied {patchType.Name}: {patched?.Count ?? 0} patched method(s).");
         }
         catch (Exception ex)
         {
-            Plugin.Logger.LogError($"Failed applying {patchType.Name} - continuing with remaining patch groups.\n{ex}");
+            Plugin.Debug($"Failed applying {patchType.Name} - continuing with remaining patch groups.\n{ex}",
+                Plugin.DebugType.LogError);
         }
     }
     
@@ -68,7 +75,6 @@ internal static class MissileOptimisations
         var bucketCount = Mathf.Max(1, Mathf.RoundToInt(interval / Time.fixedDeltaTime));
         var bucket = nextBucket++ % bucketCount;
         var phase = bucket * (interval / bucketCount);
-        
         return Time.timeSinceLevelLoad + interval + phase;
     }
     
@@ -92,8 +98,8 @@ internal static class MissileOptimisations
             
             __instance.lastTerminalCheck =
                 Time.timeSinceLevelLoad + __instance.guidanceDelay - CruiseGuidanceInterval + phase;
-            
-            if (_launchProximitySq <= 0f && _etaWindow <= 0f) return;
+            if (_launchProximitySq <= 0f && _etaWindow <= 0f)
+                return;
             
             var missile = __instance.missile;
             var launchPosition = missile.rb.position.ToGlobalPosition();
@@ -105,15 +111,15 @@ internal static class MissileOptimisations
                 state.HasLaunchPosition = true;
             }
             
-            if (_etaWindow > 0f)
-            {
-                var targetDelta = __instance.knownPos - launchPosition;
-                var distance = targetDelta.magnitude;
-                var estimatedSpeed = Mathf.Max(missile.GetWeaponInfo().maxSpeed, 100f);
-                state.EstimatedArrivalTime =
-                    Time.timeSinceLevelLoad + __instance.guidanceDelay + distance / estimatedSpeed;
-                state.HasEstimatedArrivalTime = true;
-            }
+            if (!(_etaWindow > 0f))
+                return;
+            
+            var targetDelta = __instance.knownPos - launchPosition;
+            var distance = targetDelta.magnitude;
+            var estimatedSpeed = Mathf.Max(missile.GetWeaponInfo().maxSpeed, 100f);
+            state.EstimatedArrivalTime =
+                Time.timeSinceLevelLoad + __instance.guidanceDelay + distance / estimatedSpeed;
+            state.HasEstimatedArrivalTime = true;
         }
         
         [HarmonyPatch(typeof(OpticalSeekerCruiseMissile), nameof(OpticalSeekerCruiseMissile.TerrainWaypoint))]
@@ -128,14 +134,12 @@ internal static class MissileOptimisations
             var selfPosition = selfRb.position;
             var selfForward = __instance.transform.forward;
             var selfGlobalPosition = selfPosition.ToGlobalPosition();
-            
             var formationSpacingSq = __instance.formationSpacing * __instance.formationSpacing;
             var selfOwnerId = selfMissile.ownerID;
             var selfWeaponInfo = selfMissile.GetWeaponInfo();
-            
             MissileState? selfState = null;
-            
-            if (_launchProximitySq > 0f || _etaWindow > 0f) MissileStates.TryGetValue(selfMissile, out selfState);
+            if (_launchProximitySq > 0f || _etaWindow > 0f)
+                MissileStates.TryGetValue(selfMissile, out selfState);
             
 #pragma warning disable Harmony003
             destination.y = Mathf.Max(destination.y, Datum.LocalSeaY + __instance.altitudeTarget);
@@ -145,7 +149,6 @@ internal static class MissileOptimisations
             velocity.y = 0f;
             target = Vector3.RotateTowards(velocity.normalized, target, 0.17453292f, 0f);
             var throttle = 1f;
-            
             if (selfMissile.NetworkHQ != null)
                 foreach (var otherMissile in selfMissile.NetworkHQ.GetCruiseMissiles())
                 {
@@ -160,15 +163,15 @@ internal static class MissileOptimisations
                     
                     // Launch-source grouping
                     
-                    var sourceCompatible = !_groupByOwner && _launchProximitySq <= 0f
-                                           || _groupByOwner && otherMissile.ownerID == selfOwnerId;
+                    var sourceCompatible = (!_groupByOwner && _launchProximitySq <= 0f)
+                                           || (_groupByOwner && otherMissile.ownerID == selfOwnerId);
                     
                     if (!sourceCompatible && _launchProximitySq > 0f && selfState is { HasLaunchPosition: true })
                         if (MissileStates.TryGetValue(otherMissile, out otherState) && otherState.HasLaunchPosition)
                         {
                             var launchDelta = selfState.LaunchPosition - otherState.LaunchPosition;
-                            
-                            if (launchDelta.sqrMagnitude <= _launchProximitySq) sourceCompatible = true;
+                            if (launchDelta.sqrMagnitude <= _launchProximitySq)
+                                sourceCompatible = true;
                         }
                     
                     if (!sourceCompatible)
@@ -178,23 +181,24 @@ internal static class MissileOptimisations
                     
                     if (_etaWindow > 0f)
                     {
-                        if (selfState == null || !selfState.HasEstimatedArrivalTime) continue;
+                        if (selfState == null || !selfState.HasEstimatedArrivalTime)
+                            continue;
                         
-                        if (otherState == null && !MissileStates.TryGetValue(otherMissile, out otherState)) continue;
+                        if (otherState == null && !MissileStates.TryGetValue(otherMissile, out otherState))
+                            continue;
                         
                         if (!otherState.HasEstimatedArrivalTime)
                             continue;
                         
-                        if (Mathf.Abs(otherState.EstimatedArrivalTime - selfState.EstimatedArrivalTime)
-                            > _etaWindow)
+                        if (Mathf.Abs(otherState.EstimatedArrivalTime - selfState.EstimatedArrivalTime) > _etaWindow)
                             continue;
                     }
                     
                     var otherMissilePosition = otherMissile.rb.position;
                     var separation = selfPosition - otherMissilePosition;
                     var distanceSq = separation.sqrMagnitude;
-                    
-                    if (distanceSq > 5000f * 5000f) continue;
+                    if (distanceSq > 5000f * 5000f)
+                        continue;
                     
                     var normalized = separation.normalized;
                     var spacing = formationSpacingSq / distanceSq;
@@ -224,8 +228,7 @@ internal static class MissileOptimisations
             vector2 += Vector3.up * __instance.altitudeTarget;
             if (selfMissile.radarAlt < __instance.altitudeTarget * 2f)
             {
-                var num4 = __instance.altitudeTarget -
-                           (selfMissile.radarAlt + selfMissile.rb.velocity.y * 4f);
+                var num4 = __instance.altitudeTarget - (selfMissile.radarAlt + selfMissile.rb.velocity.y * 4f);
                 __instance.altitudeTrim += num4;
                 __instance.altitudeTrim = Mathf.Max(__instance.altitudeTrim, 0f);
                 vector2 += __instance.altitudeTrim * Vector3.up;
@@ -246,7 +249,6 @@ internal static class MissileOptimisations
                 Mathf.Max(__instance.terrainClearVector.y, 0f - (num5 - __instance.altitudeTarget));
             
             __result = selfGlobalPosition + __instance.terrainClearVector;
-            
             return false;
         }
         
@@ -271,7 +273,9 @@ internal static class MissileOptimisations
         private static bool MissileApplyAeroPrefix(Missile __instance)
         {
             if (WindSampleInterval <= 0f)
+#pragma warning disable CS0162 // Unreachable code detected
                 return true;
+#pragma warning restore CS0162 // Unreachable code detected
             
             var state = GetState(__instance);
             var now = Time.timeSinceLevelLoad;
@@ -295,14 +299,12 @@ internal static class MissileOptimisations
             var sqrMagnitude = relativeAirVelocity.sqrMagnitude;
             var normalized = Vector3.Cross(Vector3.Cross(forward, relativeAirVelocity), relativeAirVelocity)
                 .normalized;
-            
             var angle = Mathf.PI / 180f * Vector3.Angle(forward, relativeAirVelocity);
             var liftCoef = __instance.liftCurve.Evaluate(angle);
             var drag = __instance.dragCurve.Evaluate(angle) * __instance.airDensity * sqrMagnitude * 0.5f *
                        __instance.currentFinArea;
             var lift = liftCoef * __instance.airDensity * sqrMagnitude * -0.5f * __instance.currentFinArea;
             var dragForce = -relativeAirVelocity.normalized * drag;
-            
             if (__instance.supersonicDrag > 0f)
             {
                 var speedOfSound = LevelInfo.GetSpeedOfSound(rb.position.GlobalY());
@@ -336,7 +338,6 @@ internal static class MissileOptimisations
             }
             
             rb.AddRelativeTorque(torque, ForceMode.Acceleration);
-            
             return false;
         }
         
@@ -347,7 +348,6 @@ internal static class MissileOptimisations
         {
             var state = GetState(__instance);
             var now = Time.timeSinceLevelLoad;
-            
             if (!state.HasAirDensity)
             {
                 state.AirDensity = LevelInfo.GetAirDensity(__instance.rb.position.GlobalY());
@@ -366,7 +366,6 @@ internal static class MissileOptimisations
             __instance.Steering();
             __instance.ApplyAero();
             __instance.DetectCollisions();
-            
             return false;
         }
     }
@@ -390,7 +389,6 @@ internal static class MissileOptimisations
                 return;
             
             state.FarGuidance = far;
-            
             state.LongGuidanceScheduled = false;
             state.HasCachedAimPoint = false;
         }
@@ -404,6 +402,7 @@ internal static class MissileOptimisations
             var state = GetState(missile);
             if (!state.FarGuidance)
                 return true;
+            
             if (__instance.hasVisual && missile.targetID.NotValid) missile.SetTarget(__instance.targetUnit);
             if (!__instance.hasVisual && missile.targetID.IsValid) missile.SetTarget(null);
             if (!state.HasCachedAimPoint || ShouldRefreshLongGuidance(state))
@@ -418,13 +417,11 @@ internal static class MissileOptimisations
             
             if (PlayerSettings.debugVis && __instance.aimpointDebug != null)
                 __instance.aimpointDebug.transform.localPosition = state.CachedAimPoint.AsVector3();
-            
             __instance.timeToTarget -= Time.fixedDeltaTime;
             if (!missile.IsTangible() && missile.owner != null &&
                 !FastMath.InRange(missile.owner.GlobalPosition(), missile.GlobalPosition(), 15f))
                 missile.SetTangible(true);
             missile.SetAimpoint(state.CachedAimPoint, __instance.knownVel);
-            
             return false;
         }
         
@@ -441,8 +438,8 @@ internal static class MissileOptimisations
             
             if (now < state.NextLongGuidanceUpdate)
                 return false;
-            state.NextLongGuidanceUpdate = now + LongRangeGuidanceInterval;
             
+            state.NextLongGuidanceUpdate = now + LongRangeGuidanceInterval;
             return true;
         }
         
@@ -503,7 +500,9 @@ internal static class MissileOptimisations
             Vector3 inputs, float throttle, ref float __result)
         {
             if (MotorMassUpdateInterval <= 0f)
+#pragma warning disable CS0162 // Unreachable code detected
                 return true;
+#pragma warning restore CS0162 // Unreachable code detected
             
             if (__instance.delayTimer > 0f)
             {
@@ -544,19 +543,137 @@ internal static class MissileOptimisations
             
             if (burnedOut)
                 __instance.Burnout(false);
-            
             if (__instance.thrustVectoring > 0f)
                 foreach (var particles in __instance.particleSystems)
 #pragma warning disable Harmony003
                     particles.transform.localEulerAngles = new Vector3(inputs.x * __instance.thrustVectoring,
                         180f - inputs.y * __instance.thrustVectoring, 0f);
 #pragma warning restore Harmony003
-            
             if (localSim && missile.speed < __instance.topSpeed)
                 missile.rb.AddForce(__instance.thrust * throttle * missile.transform.forward);
             __result = __instance.thrust;
-            
             return false;
+        }
+    }
+    
+    [HarmonyPatch]
+    internal static class CruiseMissileRetargetPatches
+    {
+        private static readonly Dictionary<Unit, RetargetCandidate> RetargetCandidates = new(16);
+        
+        [HarmonyPatch(typeof(OpticalSeekerCruiseMissile), nameof(OpticalSeekerCruiseMissile.SlowChecks))]
+        [HarmonyPrefix]
+        // ReSharper disable once InconsistentNaming
+        private static void CruiseMissileSlowChecksPrefix(OpticalSeekerCruiseMissile __instance)
+        {
+            if (!_cruiseRetargeting)
+                return;
+            
+            var missile = __instance.missile;
+            if (missile == null || missile.disabled || __instance.terminalMode)
+                return;
+            
+            if (__instance.targetUnit != null && !__instance.targetUnit.disabled)
+                return;
+            
+            TryRetargetCruiseMissile(__instance);
+        }
+        
+        private static bool TryRetargetCruiseMissile(OpticalSeekerCruiseMissile seeker)
+        {
+            var missile = seeker.missile;
+            var hq = missile.NetworkHQ;
+            if (hq == null || _cruiseRetargetRangeSq <= 0f)
+                return false;
+            
+            var selfPosition = missile.rb.position;
+            var selfOwnerId = missile.ownerID;
+            var selfWeaponInfo = missile.GetWeaponInfo();
+            RetargetCandidates.Clear();
+            foreach (var otherMissile in hq.GetCruiseMissiles())
+            {
+                if (otherMissile == null || otherMissile == missile || otherMissile.disabled)
+                    continue;
+                
+                if (otherMissile.ownerID != selfOwnerId)
+                    continue;
+                
+                if (!ReferenceEquals(otherMissile.GetWeaponInfo(), selfWeaponInfo))
+                    continue;
+                
+                var separation = otherMissile.rb.position - selfPosition;
+                if (separation.sqrMagnitude > _cruiseRetargetRangeSq)
+                    continue;
+                
+                if (otherMissile.seeker is not OpticalSeekerCruiseMissile otherSeeker || otherSeeker.terminalMode)
+                    continue;
+                
+                var target = otherSeeker.targetUnit;
+                if (target == null || target.disabled || target.NetworkHQ == null)
+                    continue;
+                
+                if (target.NetworkHQ == hq)
+                    continue;
+                
+                if (seeker.targetHQAtLaunch != null && target.NetworkHQ != seeker.targetHQAtLaunch)
+                    continue;
+                
+                if (RetargetCandidates.TryGetValue(target, out var candidate))
+                {
+                    candidate.MissileCount++;
+                    RetargetCandidates[target] = candidate;
+                }
+                else
+                {
+                    RetargetCandidates.Add(target, new RetargetCandidate
+                    {
+                        MissileCount = 1,
+                        KnownPosition = otherSeeker.knownPos
+                    });
+                }
+            }
+            
+            if (RetargetCandidates.Count == 0)
+                return false;
+            
+            Unit? chosenTarget = null;
+            var chosenCandidate = default(RetargetCandidate);
+            var lowestMissileCount = int.MaxValue;
+            foreach (var pair in RetargetCandidates)
+            {
+                if (pair.Value.MissileCount >= lowestMissileCount)
+                    continue;
+                
+                lowestMissileCount = pair.Value.MissileCount;
+                chosenTarget = pair.Key;
+                chosenCandidate = pair.Value;
+            }
+            
+            if (chosenTarget == null)
+                return false;
+            
+            ApplyCruiseRetarget(seeker, chosenTarget, chosenCandidate.KnownPosition);
+            return true;
+        }
+        
+        private static void ApplyCruiseRetarget(OpticalSeekerCruiseMissile seeker, Unit newTarget,
+            GlobalPosition knownPosition)
+        {
+            var missile = seeker.missile;
+            var previousKnownPosition = seeker.knownPos;
+            var headingToFinalTarget = FastMath.InRange(seeker.aimPos, previousKnownPosition, 10f);
+            seeker.targetUnit = newTarget;
+            seeker.targetHQAtLaunch = newTarget.NetworkHQ;
+            seeker.knownPos = knownPosition;
+            seeker.knownVel = Vector3.zero;
+            if (headingToFinalTarget) seeker.aimPos = knownPosition;
+            missile.SetTarget(newTarget);
+        }
+        
+        private struct RetargetCandidate
+        {
+            public int MissileCount;
+            public GlobalPosition KnownPosition;
         }
     }
     

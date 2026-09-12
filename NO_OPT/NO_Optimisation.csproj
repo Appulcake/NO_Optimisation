@@ -10,7 +10,7 @@
         <PackageId>Apul.NO_Optimisation</PackageId>
         <Title>NO_Optimisation</Title>
         <Description>A mod to optimise Nuclear Option.</Description>
-        <Version>0.34.2.1</Version>
+        <Version>0.34.2.2</Version>
         <Authors>Appulcake</Authors>
         <PackageTags>nuclear;option;bepinex</PackageTags>
 
@@ -48,6 +48,8 @@
         <Reference Include="Rewired_Core" HintPath="$(Game_Path)\Rewired_Core.dll" Private="False" Publicize="True"/>
         <Reference Include="Unity.RenderPipelines.Universal.Runtime" HintPath="$(Game_Path)\Unity.RenderPipelines.Universal.Runtime.dll" Private="False" Publicize="True"/>
         <Reference Include="Unity.RenderPipelines.Core.Runtime" HintPath="$(Game_Path)\Unity.RenderPipelines.Core.Runtime.dll" Private="False" Publicize="True"/>
+        <Reference Include="UnityEngine.UI" HintPath="$(Game_Path)\UnityEngine.UI.dll" Private="False" Publicize="True"/>
+        <Reference Include="Unity.TextMeshPro" HintPath="$(Game_Path)\Unity.TextMeshPro.dll" Private="False" Publicize="True"/>
         <Reference Include="UniTask" HintPath="$(Game_Path)\UniTask.dll" Private="False" Publicize="True"/>
     </ItemGroup>
 
@@ -62,6 +64,9 @@
         </CreateItem>
 
         <!-- Copy the build output -->
+        <Message Text="Copying build output assemblies from $(OutDir)*.dll to $(ModDestination)\$(AssemblyName)-$(Configuration)" Importance="high"/>
+        <Copy SourceFiles="@(DllFiles)" DestinationFolder="$(ModDestination)\$(AssemblyName)"/>
+
         <Message Text="Copying build output assemblies from $(OutDir)*.dll to Y:\NOServers\ApulTest1\BepInEx\plugins\$(AssemblyName)" Importance="high"/>
         <Copy SourceFiles="@(DllFiles)" DestinationFolder="Y:\NOServer\servers\ApulTest1\BepInEx\plugins\$(AssemblyName)"/>
     </Target>

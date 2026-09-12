@@ -17,6 +17,7 @@ internal static class HeadlessServerPatches
     internal static void Apply(Harmony harmony)
     {
         Patch(harmony, typeof(NoOpPatches));
+        Patch(harmony, typeof(EnginePatches));
         Patch(harmony, typeof(AudioSourcePatches));
         Patch(harmony, typeof(ParticlePatches));
         Patch(harmony, typeof(MiscPatches));
@@ -26,15 +27,13 @@ internal static class HeadlessServerPatches
     {
         try
         {
-            var patched = harmony
-                .CreateClassProcessor(patchType)
-                .Patch();
-            
-            Plugin.Logger.LogInfo($"Applied {patchType.Name}: {patched?.Count ?? 0} patched method(s).");
+            var patched = harmony.CreateClassProcessor(patchType).Patch();
+            Plugin.Debug($"Applied {patchType.Name}: {patched?.Count ?? 0} patched method(s).");
         }
         catch (Exception ex)
         {
-            Plugin.Logger.LogError($"Failed applying {patchType.Name} - continuing with remaining patch groups.\n{ex}");
+            Plugin.Debug($"Failed applying {patchType.Name} - continuing with remaining patch groups.\n{ex}",
+                Plugin.DebugType.LogError);
         }
     }
     
@@ -132,12 +131,29 @@ internal static class HeadlessServerPatches
             }
             
             var signature = string.Join(", ", Array.ConvertAll(parameters, p => p.Name));
-            Plugin.Logger.LogError($"Headless no-op target not found: {type.FullName}.{name}({signature})");
+            Plugin.Debug($"Headless no-op target not found: {type.FullName}.{name}({signature})",
+                Plugin.DebugType.LogError);
         }
         
         [HarmonyPrefix]
         [HarmonyPriority(Priority.First)]
         private static bool SkipPrefix() => false;
+    }
+    
+    [HarmonyPatch]
+    internal static class EnginePatches
+    {
+        // This for some reason is run in Update() => PropAnimate() which is otherwise purely visual and thus no-opped
+        // Run this once before FixedUpdate() as it expects this to be set from Update(), otherwise these props
+        // don't have thrust on AI planes
+        [HarmonyPatch(typeof(ConstantSpeedProp), nameof(ConstantSpeedProp.FixedUpdate))]
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
+        // ReSharper disable once InconsistentNaming
+        private static void ConstantSpeedPropFixedUpdatePrefix(ConstantSpeedProp __instance)
+        {
+            __instance.rpmRatio = __instance.RPM / __instance.rpmLimit;
+        }
     }
     
     [HarmonyPatch]
@@ -199,12 +215,10 @@ internal static class HeadlessServerPatches
         private static bool DownwashAwakePrefix(Downwash __instance)
         {
             __instance.enabled = false;
-            
             foreach (var system in __instance.GetComponentsInChildren<ParticleSystem>(true))
                 system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             if (__instance.forceField != null)
                 __instance.forceField.enabled = false;
-            
             return false;
         }
         
@@ -241,37 +255,30 @@ internal static class HeadlessServerPatches
                 (__instance.snapToWater && __instance.transform.parent.position.y < Datum.LocalSeaY - 10f))
             {
                 foreach (var behaviour in __instance.systemBehaviours) behaviour.Stop();
-                
                 __instance.ParentObjectCulled();
                 Object.Destroy(__instance.gameObject, 60f);
+                if (__instance.fireLight == null)
+                    return false;
                 
-                if (__instance.fireLight != null)
-                {
-                    __instance.fireLifetime = 0f;
-                    __instance.fireDamage = 0f;
-                    __instance.enabled = false;
-                    Object.Destroy(__instance.fireLight.gameObject);
-                }
-                
+                __instance.fireLifetime = 0f;
+                __instance.fireDamage = 0f;
+                __instance.enabled = false;
+                Object.Destroy(__instance.fireLight.gameObject);
                 return false;
             }
             
             __instance.time++;
-            
             var active = false;
-            
             foreach (var behaviour in __instance.systemBehaviours) active |= behaviour.IsActive();
-            
             if (!active)
                 Object.Destroy(__instance.gameObject);
-            
             if (__instance.time > __instance.fireLifetime)
             {
                 __instance.fireLifetime = 0f;
                 __instance.fireDamage = 0f;
                 __instance.enabled = false;
-                
-                if (__instance.fireLight != null) Object.Destroy(__instance.fireLight.gameObject);
+                if (__instance.fireLight != null)
+                    Object.Destroy(__instance.fireLight.gameObject);
             }
             
             if (__instance.fireDamage <= 0f)
@@ -279,12 +286,9 @@ internal static class HeadlessServerPatches
             
             var count = Physics.OverlapSphereNonAlloc(__instance.transform.position, __instance.fireRange,
                 DamageParticles.fireColliders);
-            
             for (var i = 0; i < count; i++)
-                if (DamageParticles.fireColliders[i]
-                    .TryGetComponent<IDamageable>(out var damageable))
+                if (DamageParticles.fireColliders[i].TryGetComponent<IDamageable>(out var damageable))
                     damageable.TakeDamage(0f, 0f, 1f, __instance.fireDamage, 0f, PersistentID.None);
-            
             return false;
         }
         
@@ -337,7 +341,6 @@ internal static class HeadlessServerPatches
             __instance.blastPropagation += 340f * Time.deltaTime;
             var num = Mathf.Max(__instance.blastPropagation / __instance.blastPower, 1f);
             var num2 = 25000f / (num * num * num);
-            
             if (num2 > 0.5f)
             {
                 for (var num3 = __instance.influencedObjects.Count - 1; num3 >= 0; num3--)
@@ -373,7 +376,6 @@ internal static class HeadlessServerPatches
                 forceField.enabled = false;
             if (__instance.lensFlare != null)
                 __instance.lensFlare.enabled = false;
-            
             return false;
         }
         
@@ -385,7 +387,6 @@ internal static class HeadlessServerPatches
             foreach (var particles in __instance.muzzleParticles)
                 if (particles != null)
                     particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            
             __instance.muzzleParticles = [];
             __instance.ejectionTransform = null;
             __instance.sources = [];
@@ -442,7 +443,6 @@ internal static class HeadlessServerPatches
             if (__instance.overheatFactor > 1f)
                 __instance.heat += __instance.heatPerShot * (__instance.overheatFactor - 1f);
             __instance.heat += __instance.heatPerShot;
-            
             return false;
         }
         
@@ -452,21 +452,17 @@ internal static class HeadlessServerPatches
         private static void MissileAwakePostfix(Missile __instance)
         {
             __instance.flightSound = null;
-            
             foreach (var motor in __instance.motors)
             {
                 foreach (var particles in motor.particleSystems)
                     if (particles != null)
                         particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                
                 motor.particleSystems = [];
                 motor.audioSources = [];
                 motor.startupSource = null;
-                
                 foreach (var light in motor.lights)
                     if (light != null)
                         light.enabled = false;
-                
                 motor.lights = [];
                 motor.trailEmitters = [];
             }
@@ -479,7 +475,6 @@ internal static class HeadlessServerPatches
         {
             if (__instance.launchParticles != null)
                 __instance.launchParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            
             __instance.launchParticles = null;
             __instance.launchSound = null;
         }
@@ -495,7 +490,6 @@ internal static class HeadlessServerPatches
             __instance.beamScale = __instance.beamRenderer.transform.localScale.x;
             __instance.lastDamageTick = Time.timeSinceLevelLoad;
             __instance.sources = [];
-            
             return false;
         }
         
@@ -511,7 +505,6 @@ internal static class HeadlessServerPatches
             __instance.previousLastFired = __instance.lastFired;
             __instance.lastFired = Time.timeSinceLevelLoad;
             weaponStation.LastFiredTime = Time.timeSinceLevelLoad;
-            
             return false;
         }
         
@@ -523,10 +516,8 @@ internal static class HeadlessServerPatches
         {
             if (!Mathf.Approximately(__instance.lastFired, __instance.previousLastFired) &&
                 !(Time.timeSinceLevelLoad > __instance.lastFired + 0.2f)) return false;
-            
             __instance.fireCommanded = false;
             __instance.enabled = false;
-            
             return false;
         }
         
@@ -604,7 +595,6 @@ internal static class HeadlessServerPatches
             __instance.StartSlowUpdateDelayed(1f, __instance.CheckRadarAlt);
             __instance.enabled = true;
             __instance.Eject().Forget();
-            
             return false;
         }
         
@@ -616,7 +606,6 @@ internal static class HeadlessServerPatches
         {
             __instance.isLeaking = true;
             __instance.leakRate = Mathf.Clamp(leakRate, __instance.leakRate, __instance.maxLeakRate);
-            
             return false;
         }
         
@@ -633,7 +622,6 @@ internal static class HeadlessServerPatches
             __instance.velocity = launchVelocity;
             __instance.aircraft = aircraft;
             aircraft.AddIRSource(__instance.IR);
-            
             return false;
         }
         
@@ -696,7 +684,6 @@ internal static class HeadlessServerPatches
             __instance.smokeParticles?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             if (__instance.flareLight != null)
                 __instance.flareLight.enabled = false;
-            
             return false;
         }
         
@@ -737,7 +724,6 @@ internal static class HeadlessServerPatches
         private static void DisableExistingAudioSources()
         {
             AudioListener.pause = true;
-            
             foreach (var source in Object.FindObjectsOfType<AudioSource>(true))
             {
                 source.playOnAwake = false;
@@ -755,7 +741,6 @@ internal static class HeadlessServerPatches
             __instance.lightningSystem?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             if (__instance.flashLight != null)
                 __instance.flashLight.enabled = false;
-            
             return false;
         }
         
@@ -775,7 +760,6 @@ internal static class HeadlessServerPatches
                 return true;
             
             HitValidator.LogFiring(___owner.persistentID, muzzle.position - Datum.origin.position, inheritedVelocity);
-            
             return false;
         }
         
@@ -786,15 +770,12 @@ internal static class HeadlessServerPatches
         private static bool DebugUIStartPrefix(DebugUI __instance)
         {
             __instance.enabled = false;
-            
             __instance.graphy?.SetActive(false);
             __instance.performanceText?.SetActive(false);
             __instance.bandwidthText?.SetActive(false);
             __instance.mission?.SetActive(false);
-            
             if (__instance.canvas != null)
                 __instance.canvas.gameObject.SetActive(false);
-            
             return false;
         }
         
@@ -805,7 +786,6 @@ internal static class HeadlessServerPatches
         {
             foreach (var particles in __instance.particles)
                 particles?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            
             __instance.particles = [];
             __instance.rotators = [];
             __instance.thrustSound = null;
@@ -821,11 +801,9 @@ internal static class HeadlessServerPatches
         {
             foreach (var particles in __instance.particleSystems)
                 particles?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            
             foreach (var light in __instance.lights)
                 if (light != null)
                     light.enabled = false;
-            
             __instance.particleSystems = [];
             __instance.trailEmitters = [];
             __instance.audioSources = [];
