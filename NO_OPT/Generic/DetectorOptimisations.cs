@@ -5,7 +5,9 @@ using NuclearOption.Jobs;
 
 namespace NO_OPT.Generic;
 
-[OptimisationModule(ModuleScope.Any, "Generic", "Enable Detector Optimisations")]
+[OptimisationModule(ModuleScope.Any, "--- Generic ---", "0. Enable Detector Optimisations",
+    true, "Disables redundant LoS/Radar/Datalink detection checks for scenery props, this can " +
+          "massively boost client FPS and server UPS on scenery prop-heavy maps.")]
 internal sealed class DetectorOptimisations : OptimisationModule
 {
     // TO-DO: Check how much of this all is even needed on a remote client/non host?

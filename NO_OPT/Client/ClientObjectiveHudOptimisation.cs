@@ -20,8 +20,10 @@ internal sealed class ClientObjectiveHudOptimisation : OptimisationModule
     
     protected override void Configure()
     {
-        _showMarkers = Bind("Client - HUD", "Show Objective HUD Markers", true);
-        _updateRate = Bind("Client - HUD", "Objective HUD Update Rate", 2f,
+        _showMarkers = Bind("--- Client - HUD ---", "6. Show Objective HUD Markers", true,
+            "This is pretty much a cosmetic thing, allows you to declutter your HUD. " +
+            "They still remain visible on the map (that's controlled by the vanilla map objectives setting).");
+        _updateRate = Bind("--- Client - HUD ---", "5. Objective HUD Update Rate", 2f,
             "Same as the one for Map Update Rate, but for markers on the HUD. 0 = full rate / vanilla.");
         
         Watch(_showMarkers, RefreshSettings);

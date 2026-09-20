@@ -7,7 +7,9 @@ using UnityEngine;
 
 namespace NO_OPT.Generic;
 
-[OptimisationModule(ModuleScope.Any, "Generic", "Enable Missile Optimisation Patches", LiveToggle = false)]
+[OptimisationModule(ModuleScope.Any, "--- Generic ---", "0. Enable Missile Optimisation Patches",
+    true, "Optimises missile (especially cruise missile) simulation, only relevant for " +
+          "host/server (inert on non-host client, including the Cruise Missile settings category).", LiveToggle = false)]
 internal sealed class MissileOptimisations : OptimisationModule
 {
     private const float WindSampleInterval = 0.05f; // 20 UPS
@@ -36,11 +38,11 @@ internal sealed class MissileOptimisations : OptimisationModule
     
     protected override void Configure()
     {
-        _groupByOwnerConfig = Config.Bind("Generic - Cruise Missile", "Group Formation By Owner", true);
-        _launchProximityConfig = Config.Bind("Generic - Cruise Missile", "Group Formation Launch Distance", 10000f);
-        _etaWindowConfig = Config.Bind("Generic - Cruise Missile", "Group Formation ETA Window", 15f);
-        _cruiseRetargetingConfig = Config.Bind("Generic - Cruise Missile", "Retarget Destroyed Targets", false);
-        _cruiseRetargetRangeConfig = Config.Bind("Generic - Cruise Missile", "Retarget Group Range", 7500f);
+        _groupByOwnerConfig = Config.Bind("--- Generic - Cruise Missile ---", "1. Group Formation By Owner", true);
+        _launchProximityConfig = Config.Bind("--- Generic - Cruise Missile ---", "2. Group Formation Launch Distance", 10000f);
+        _etaWindowConfig = Config.Bind("--- Generic - Cruise Missile ---", "3. Group Formation ETA Window", 15f);
+        _cruiseRetargetingConfig = Config.Bind("--- Generic - Cruise Missile ---", "4. Retarget Destroyed Targets", false);
+        _cruiseRetargetRangeConfig = Config.Bind("--- Generic - Cruise Missile ---", "4. Retarget Group Range", 7500f);
     }
     
     protected override void OnEnable()

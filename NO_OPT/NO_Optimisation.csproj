@@ -6,7 +6,7 @@
 
         <TargetFramework>net48</TargetFramework>
         <AssemblyName>Apul.NO_Optimisation</AssemblyName>
-        <Product>NO_Optimisation</Product>
+        <Product>Apul.NO_Optimisation</Product>
         <PackageId>Apul.NO_Optimisation</PackageId>
         <Title>NO_Optimisation</Title>
         <Description>A mod to optimise Nuclear Option.</Description>
@@ -55,6 +55,11 @@
 
     <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
         <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.2" PrivateAssets="all"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Compile Remove="Server\MemoryDiagnostics.cs" />
+      <None Include="Server\MemoryDiagnostics.cs" />
     </ItemGroup>
 
     <Target Name="PostBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(ModDestination)' != ''">

@@ -20,7 +20,7 @@ public class Plugin : BaseUnityPlugin
     private void Awake()
     {
         LogSource = Logger;
-        DebugLogs = Config.Bind("Debug", "Debug Logs", false);
+        DebugLogs = Config.Bind("--- Debug ---", "Debug Logs", false);
         Logger.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} is loaded!");
     }
     
@@ -28,7 +28,9 @@ public class Plugin : BaseUnityPlugin
     {
         var isHeadlessServer = GameManager.IsHeadless;
         if (!isHeadlessServer)
-            _clientPatchesEnabled = Config.Bind("Client", "Enable Client Patches", true);
+            _clientPatchesEnabled = Config.Bind("--- Client---", "0. Enable Client Patches", true,
+                "Master switch that toggles all client only optimisations, doesn't otherwise do " + 
+                "anything on its own.");
         _moduleManager = new ModuleManager(this, isHeadlessServer);
         if (_clientPatchesEnabled != null)
         {

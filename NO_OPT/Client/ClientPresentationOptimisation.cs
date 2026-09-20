@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace NO_OPT.Client;
 
-[OptimisationModule(ModuleScope.Client, "Client", "Distant Unit Rendering Optimisation")]
+[OptimisationModule(ModuleScope.Client, "--- Client ---", "1. Distant Unit Rendering Optimisation")]
 internal sealed class ClientPresentationOptimisation : OptimisationModule
 {
     protected override void OnDisable()

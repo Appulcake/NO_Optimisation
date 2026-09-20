@@ -3,7 +3,9 @@ using NO_OPT.Modules;
 
 namespace NO_OPT.Client;
 
-[OptimisationModule(ModuleScope.Client, "Client", "Datalink Target Search Optimisation")]
+[OptimisationModule(ModuleScope.Client, "--- Client ---", "4. Datalink Target Search Optimisation", 
+    true,"Removes redundant Turret.DatalinkTargetSearch on remote clients, which causes clients to "
+         + "do LoS checks for all units' turrets on map, not just your own, lowering FPS for no reason.")]
 internal sealed class ClientDatalinkOptimisation : OptimisationModule
 {
     [HarmonyPatch]

@@ -9,7 +9,7 @@ using Random = UnityEngine.Random;
 
 namespace NO_OPT.Client;
 
-[OptimisationModule(ModuleScope.Client, "Client", "HUD Marker Optimisation")]
+[OptimisationModule(ModuleScope.Client, "--- Client ---", "2. HUD Marker Optimisation")]
 internal sealed class ClientHudOptimisation : OptimisationModule
 {
     private static ConfigEntry<float> _reducedUps = null!;
@@ -22,16 +22,16 @@ internal sealed class ClientHudOptimisation : OptimisationModule
     
     protected override void Configure()
     {
-        _reducedUps = Bind("Client - HUD", "1. Reduced Marker Update Rate", 30f,
+        _reducedUps = Bind("--- Client - HUD ---", "1. Reduced Marker Update Rate", 30f,
             "HUD marker updates per second in Reduced Fidelity. 0 = full rate.");
-        _farUps = Bind("Client - HUD", "2. Far Marker Update Rate", 15f,
+        _farUps = Bind("--- Client - HUD ---", "2. Far Marker Update Rate", 15f,
             "HUD marker updates per second in Far fidelity. 0 = full rate.");
-        _strategicUps = Bind("Client - HUD", "3. Strategic Marker Update Rate", 6f,
+        _strategicUps = Bind("--- Client - HUD ---", "3. Strategic Marker Update Rate", 6f,
             "HUD marker updates per second in Strategic fidelity. 0 = full rate.");
-        _cullDistance = Bind("Client - HUD", "HUD Marker Hide Distance", 0f,
+        _cullDistance = Bind("--- Client - HUD ---", "4. HUD Marker Hide Distance", 0f,
             "Hide all unit HUD markers beyond this distance. Can help with performance, but is mainly " +
             "subjectively nicer looking if you want less clutter. 0 disables distance hiding.");
-        _neutralCullDistance = Bind("Client - HUD", "HUD Neutral Marker Hide Distance", 5000f,
+        _neutralCullDistance = Bind("--- Client - HUD ---", "4. HUD Neutral Marker Hide Distance", 5000f,
             "Hide neutral unit HUD markers beyond this distance. The normal HUD Marker Hide Distance still " +
             "applies to all markers. 0 disables this separate neutral hiding.");
         

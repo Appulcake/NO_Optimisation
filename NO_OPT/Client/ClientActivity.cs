@@ -29,9 +29,9 @@ internal sealed class ClientActivity : OptimisationModule
     
     protected override void Configure()
     {
-        _reducedDistance = Bind("Client - Fidelity", "1. Reduced Fidelity Distance", 2500f);
-        _farDistance = Bind("Client - Fidelity", "2. Far Fidelity Distance", 7500f);
-        _strategicDistance = Bind("Client - Fidelity", "3. Strategic Fidelity Distance", 15000f);
+        _reducedDistance = Bind("--- Client - Fidelity ---", "1. Reduced Fidelity Distance", 2500f);
+        _farDistance = Bind("--- Client - Fidelity ---", "2. Far Fidelity Distance", 7500f);
+        _strategicDistance = Bind("--- Client - Fidelity ---", "3. Strategic Fidelity Distance", 15000f);
         Watch(_reducedDistance, RefreshSettings);
         Watch(_farDistance, RefreshSettings);
         Watch(_strategicDistance, RefreshSettings);
