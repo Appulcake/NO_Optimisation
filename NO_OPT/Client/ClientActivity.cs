@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using BepInEx.Configuration;
+using NO_OPT.Modules;
 using UnityEngine;
 
 namespace NO_OPT.Client;
@@ -11,24 +13,41 @@ internal enum ClientActivityTier : byte
     Strategic
 }
 
-internal static class ClientActivity
+[OptimisationModule(ModuleScope.Client, RespectClientMaster = false)]
+internal sealed class ClientActivity : OptimisationModule
 {
     private const float PresentationWakeHysteresis = 1000f;
+    
+    private static ConfigEntry<float> _reducedDistance = null!;
+    private static ConfigEntry<float> _farDistance = null!;
+    private static ConfigEntry<float> _strategicDistance = null!;
+    
     private static float _reducedDistanceSq;
     private static float _farDistanceSq;
     private static float _strategicDistanceSq;
     private static float _presentationWakeDistanceSq;
     
-    internal static void RefreshSettings()
+    protected override void Configure()
     {
-        var reduced = Mathf.Max(Plugin.ClientFidelity_ReducedDistance.Value, 0f);
-        var far = Mathf.Max(Plugin.ClientFidelity_FarDistance.Value, reduced);
-        var strategic = Mathf.Max(Plugin.ClientFidelity_StrategicDistance.Value, far);
+        _reducedDistance = Bind("Client - Fidelity", "1. Reduced Fidelity Distance", 2500f);
+        _farDistance = Bind("Client - Fidelity", "2. Far Fidelity Distance", 7500f);
+        _strategicDistance = Bind("Client - Fidelity", "3. Strategic Fidelity Distance", 15000f);
+        Watch(_reducedDistance, RefreshSettings);
+        Watch(_farDistance, RefreshSettings);
+        Watch(_strategicDistance, RefreshSettings);
+        RefreshSettings();
+    }
+    
+    private static void RefreshSettings()
+    {
+        var reduced = Mathf.Max(_reducedDistance.Value, 0f);
+        var far = Mathf.Max(_farDistance.Value, reduced);
+        var strategic = Mathf.Max(_strategicDistance.Value, far);
         _reducedDistanceSq = reduced * reduced;
         _farDistanceSq = far * far;
         _strategicDistanceSq = strategic * strategic;
-        var presentationWake = Mathf.Max(strategic - PresentationWakeHysteresis, 0f);
-        _presentationWakeDistanceSq = presentationWake * presentationWake;
+        var wake = Mathf.Max(strategic - PresentationWakeHysteresis, 0f);
+        _presentationWakeDistanceSq = wake * wake;
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -43,13 +62,10 @@ internal static class ClientActivity
     {
         if (distanceSq >= _strategicDistanceSq)
             return ClientActivityTier.Strategic;
-        
         if (distanceSq >= _farDistanceSq)
             return ClientActivityTier.Far;
-        
         if (distanceSq >= _reducedDistanceSq)
             return ClientActivityTier.Reduced;
-        
         return ClientActivityTier.Full;
     }
     

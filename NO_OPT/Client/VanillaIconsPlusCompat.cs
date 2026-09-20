@@ -29,7 +29,7 @@ internal static class VanillaIconsPlusCompat
         
         _getHudLabel = AccessTools.Method(extensionsType, "GetLabel", [typeof(HUDUnitMarker)]);
         if (_getHudLabel != null)
-            Plugin.Debug("Vanilla Icons PLUS HUD compatibility enabled.");
+            Plugin.Log("Vanilla Icons PLUS HUD compatibility enabled.");
     }
     
     internal static void CaptureState(HUDUnitMarker marker, ref VanillaIconsPlusHudState state)

@@ -1,12 +1,14 @@
-using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using BepInEx.Configuration;
 using HarmonyLib;
+using NO_OPT.Modules;
 using UnityEngine;
 
 namespace NO_OPT.Generic;
 
-internal static class MissileOptimisations
+[OptimisationModule(ModuleScope.Any, "Generic", "Enable Missile Optimisation Patches", LiveToggle = false)]
+internal sealed class MissileOptimisations : OptimisationModule
 {
     private const float WindSampleInterval = 0.05f; // 20 UPS
     private const float AirDensitySampleInterval = 0.10f; // 10 UPS
@@ -14,54 +16,47 @@ internal static class MissileOptimisations
     private const float LongRangeDistanceSq = LongRangeDistance * LongRangeDistance;
     private const float LongRangeGuidanceInterval = 0.05f; // 20 UPS
     private const float MotorMassUpdateInterval = 0.05f; // 20 UPS
+    private const float CruiseGuidanceInterval = 0.5f;
+    private static ConfigEntry<bool> _groupByOwnerConfig = null!;
+    private static ConfigEntry<float> _launchProximityConfig = null!;
+    private static ConfigEntry<float> _etaWindowConfig = null!;
+    private static ConfigEntry<bool> _cruiseRetargetingConfig = null!;
+    private static ConfigEntry<float> _cruiseRetargetRangeConfig = null!;
+    private static int _nextCruiseGuidanceBucket;
     private static readonly ConditionalWeakTable<Missile, MissileState> MissileStates = new();
-    
     private static bool _groupByOwner;
     private static float _launchProximitySq;
     private static float _etaWindow;
-    
     private static int _nextWindBucket;
     private static int _nextAirDensityBucket;
     private static int _nextGuidanceBucket;
     private static int _nextMassBucket;
-    
     private static bool _cruiseRetargeting;
     private static float _cruiseRetargetRangeSq;
     
-    internal static void Apply(Harmony harmony)
+    protected override void Configure()
+    {
+        _groupByOwnerConfig = Config.Bind("Generic - Cruise Missile", "Group Formation By Owner", true);
+        _launchProximityConfig = Config.Bind("Generic - Cruise Missile", "Group Formation Launch Distance", 10000f);
+        _etaWindowConfig = Config.Bind("Generic - Cruise Missile", "Group Formation ETA Window", 15f);
+        _cruiseRetargetingConfig = Config.Bind("Generic - Cruise Missile", "Retarget Destroyed Targets", false);
+        _cruiseRetargetRangeConfig = Config.Bind("Generic - Cruise Missile", "Retarget Group Range", 7500f);
+    }
+    
+    protected override void OnEnable()
     {
         CacheSettings();
-        Patch(harmony, typeof(CruiseMissileFormationPatches));
-        Patch(harmony, typeof(CruiseMissileRetargetPatches));
-        Patch(harmony, typeof(MissileEnvironmentPatches));
-        Patch(harmony, typeof(MissileLongRangeGuidancePatches));
-        Patch(harmony, typeof(MissileMotorPatches));
     }
     
     private static void CacheSettings()
     {
-        _groupByOwner = Plugin.GenericMissileOptimisation_GroupByOwner.Value;
-        var launchProximity = Mathf.Max(Plugin.GenericMissileOptimisation_LaunchProximity.Value, 0f);
+        _groupByOwner = _groupByOwnerConfig.Value;
+        var launchProximity = Mathf.Max(_launchProximityConfig.Value, 0f);
         _launchProximitySq = launchProximity * launchProximity;
-        _etaWindow = Mathf.Max(Plugin.GenericMissileOptimisation_ETAWindow.Value, 0f);
-        
-        _cruiseRetargeting = Plugin.GenericMissileOptimisation_CruiseRetargeting.Value;
-        var retargetRange = Mathf.Max(Plugin.GenericMissileOptimisation_CruiseRetargetRange.Value, 0f);
+        _etaWindow = Mathf.Max(_etaWindowConfig.Value, 0f);
+        _cruiseRetargeting = _cruiseRetargetingConfig.Value;
+        var retargetRange = Mathf.Max(_cruiseRetargetRangeConfig.Value, 0f);
         _cruiseRetargetRangeSq = retargetRange * retargetRange;
-    }
-    
-    private static void Patch(Harmony harmony, Type patchType)
-    {
-        try
-        {
-            var patched = harmony.CreateClassProcessor(patchType).Patch();
-            Plugin.Debug($"Applied {patchType.Name}: {patched?.Count ?? 0} patched method(s).");
-        }
-        catch (Exception ex)
-        {
-            Plugin.Debug($"Failed applying {patchType.Name} - continuing with remaining patch groups.\n{ex}",
-                Plugin.DebugType.LogError);
-        }
     }
     
     private static MissileState CreateState(Missile _) => new();
@@ -81,9 +76,6 @@ internal static class MissileOptimisations
     [HarmonyPatch]
     internal static class CruiseMissileFormationPatches
     {
-        private const float CruiseGuidanceInterval = 0.5f;
-        private static int _nextCruiseGuidanceBucket;
-        
         private static int GetCruiseGuidanceBuckets() =>
             Mathf.Max(1, Mathf.RoundToInt(CruiseGuidanceInterval / Time.fixedDeltaTime));
         
@@ -95,7 +87,6 @@ internal static class MissileOptimisations
             var bucketCount = GetCruiseGuidanceBuckets();
             var bucket = _nextCruiseGuidanceBucket++ % bucketCount;
             var phase = bucket * (CruiseGuidanceInterval / bucketCount);
-            
             __instance.lastTerminalCheck =
                 Time.timeSinceLevelLoad + __instance.guidanceDelay - CruiseGuidanceInterval + phase;
             if (_launchProximitySq <= 0f && _etaWindow <= 0f)
@@ -104,7 +95,6 @@ internal static class MissileOptimisations
             var missile = __instance.missile;
             var launchPosition = missile.rb.position.ToGlobalPosition();
             var state = GetState(missile);
-            
             if (_launchProximitySq > 0f)
             {
                 state.LaunchPosition = launchPosition;
@@ -117,8 +107,7 @@ internal static class MissileOptimisations
             var targetDelta = __instance.knownPos - launchPosition;
             var distance = targetDelta.magnitude;
             var estimatedSpeed = Mathf.Max(missile.GetWeaponInfo().maxSpeed, 100f);
-            state.EstimatedArrivalTime =
-                Time.timeSinceLevelLoad + __instance.guidanceDelay + distance / estimatedSpeed;
+            state.EstimatedArrivalTime = Time.timeSinceLevelLoad + __instance.guidanceDelay + distance / estimatedSpeed;
             state.HasEstimatedArrivalTime = true;
         }
         
@@ -140,7 +129,6 @@ internal static class MissileOptimisations
             MissileState? selfState = null;
             if (_launchProximitySq > 0f || _etaWindow > 0f)
                 MissileStates.TryGetValue(selfMissile, out selfState);
-            
 #pragma warning disable Harmony003
             destination.y = Mathf.Max(destination.y, Datum.LocalSeaY + __instance.altitudeTarget);
 #pragma warning restore Harmony003
@@ -162,10 +150,8 @@ internal static class MissileOptimisations
                     MissileState? otherState = null;
                     
                     // Launch-source grouping
-                    
                     var sourceCompatible = (!_groupByOwner && _launchProximitySq <= 0f)
                                            || (_groupByOwner && otherMissile.ownerID == selfOwnerId);
-                    
                     if (!sourceCompatible && _launchProximitySq > 0f && selfState is { HasLaunchPosition: true })
                         if (MissileStates.TryGetValue(otherMissile, out otherState) && otherState.HasLaunchPosition)
                         {
@@ -178,7 +164,6 @@ internal static class MissileOptimisations
                         continue;
                     
                     // ETA grouping
-                    
                     if (_etaWindow > 0f)
                     {
                         if (selfState == null || !selfState.HasEstimatedArrivalTime)
@@ -280,7 +265,6 @@ internal static class MissileOptimisations
             var state = GetState(__instance);
             var now = Time.timeSinceLevelLoad;
             var rb = __instance.rb;
-            
             if (!state.HasWind)
             {
                 state.Wind = NetworkSceneSingleton<LevelInfo>.i.GetWind();
@@ -297,8 +281,8 @@ internal static class MissileOptimisations
             var forward = xform.forward;
             var relativeAirVelocity = rb.velocity - state.Wind;
             var sqrMagnitude = relativeAirVelocity.sqrMagnitude;
-            var normalized = Vector3.Cross(Vector3.Cross(forward, relativeAirVelocity), relativeAirVelocity)
-                .normalized;
+            var normalized =
+                Vector3.Cross(Vector3.Cross(forward, relativeAirVelocity), relativeAirVelocity).normalized;
             var angle = Mathf.PI / 180f * Vector3.Angle(forward, relativeAirVelocity);
             var liftCoef = __instance.liftCurve.Evaluate(angle);
             var drag = __instance.dragCurve.Evaluate(angle) * __instance.airDensity * sqrMagnitude * 0.5f *

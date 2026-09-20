@@ -1,16 +1,61 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using BepInEx.Configuration;
 using HarmonyLib;
+using NO_OPT.Modules;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
 namespace NO_OPT.Client;
 
-internal static class ClientHudOptimisation
+[OptimisationModule(ModuleScope.Client, "Client", "HUD Marker Optimisation")]
+internal sealed class ClientHudOptimisation : OptimisationModule
 {
+    private static ConfigEntry<float> _reducedUps = null!;
+    private static ConfigEntry<float> _farUps = null!;
+    private static ConfigEntry<float> _strategicUps = null!;
+    private static ConfigEntry<float> _cullDistance = null!;
+    private static ConfigEntry<float> _neutralCullDistance = null!;
+    
+    internal static bool IsActive { get; private set; }
+    
+    protected override void Configure()
+    {
+        _reducedUps = Bind("Client - HUD", "1. Reduced Marker Update Rate", 30f,
+            "HUD marker updates per second in Reduced Fidelity. 0 = full rate.");
+        _farUps = Bind("Client - HUD", "2. Far Marker Update Rate", 15f,
+            "HUD marker updates per second in Far fidelity. 0 = full rate.");
+        _strategicUps = Bind("Client - HUD", "3. Strategic Marker Update Rate", 6f,
+            "HUD marker updates per second in Strategic fidelity. 0 = full rate.");
+        _cullDistance = Bind("Client - HUD", "HUD Marker Hide Distance", 0f,
+            "Hide all unit HUD markers beyond this distance. Can help with performance, but is mainly " +
+            "subjectively nicer looking if you want less clutter. 0 disables distance hiding.");
+        _neutralCullDistance = Bind("Client - HUD", "HUD Neutral Marker Hide Distance", 5000f,
+            "Hide neutral unit HUD markers beyond this distance. The normal HUD Marker Hide Distance still " +
+            "applies to all markers. 0 disables this separate neutral hiding.");
+        
+        Watch(_reducedUps, CombatHudPatches.RefreshSettings);
+        Watch(_farUps, CombatHudPatches.RefreshSettings);
+        Watch(_strategicUps, CombatHudPatches.RefreshSettings);
+        Watch(_cullDistance, CombatHudPatches.RefreshSettings);
+        Watch(_neutralCullDistance, CombatHudPatches.RefreshSettings);
+        CombatHudPatches.RefreshSettings();
+    }
+    
+    protected override void OnEnable()
+    {
+        IsActive = true;
+    }
+    
+    protected override void OnDisable()
+    {
+        IsActive = false;
+        CombatHudPatches.RestoreAll();
+    }
+    
     [HarmonyPatch]
-    internal static class CombatHudPatches
+    private static class CombatHudPatches
     {
         private const float TierRefreshInterval = 0.25f;
         private const float MaxCullWakeHysteresis = 500f;
@@ -20,26 +65,35 @@ internal static class ClientHudOptimisation
         private static float _strategicInterval;
         private static float _cullDistanceSq;
         private static float _cullWakeDistanceSq;
-        private static bool _wasEnabled;
+        private static float _neutralCullDistanceSq;
+        private static float _neutralCullWakeDistanceSq;
         
         internal static void RefreshSettings()
         {
-            _reducedInterval = ToInterval(Plugin.ClientHUD_ReducedUPS.Value);
-            _farInterval = ToInterval(Plugin.ClientHUD_FarUPS.Value);
-            _strategicInterval = ToInterval(Plugin.ClientHUD_StrategicUPS.Value);
-            var cullDistance = Mathf.Max(Plugin.ClientHUD_CullDistance.Value, 0f);
-            if (cullDistance <= 0f)
-            {
-                _cullDistanceSq = 0f;
-                _cullWakeDistanceSq = 0f;
+            _reducedInterval = ToInterval(_reducedUps.Value);
+            _farInterval = ToInterval(_farUps.Value);
+            _strategicInterval = ToInterval(_strategicUps.Value);
+            CacheCullDistance(_cullDistance.Value, out _cullDistanceSq, out _cullWakeDistanceSq);
+            CacheCullDistance(_neutralCullDistance.Value, out _neutralCullDistanceSq, out _neutralCullWakeDistanceSq);
+            if (_cullDistanceSq <= 0f && _neutralCullDistanceSq <= 0f)
                 RestoreCulledMarkers();
+        }
+        
+        private static void CacheCullDistance(float configuredDistance, out float cullDistanceSq,
+            out float wakeDistanceSq)
+        {
+            var distance = Mathf.Max(configuredDistance, 0f);
+            if (distance <= 0f)
+            {
+                cullDistanceSq = 0f;
+                wakeDistanceSq = 0f;
                 return;
             }
             
-            _cullDistanceSq = cullDistance * cullDistance;
-            var hysteresis = Mathf.Min(MaxCullWakeHysteresis, cullDistance * 0.1f);
-            var wakeDistance = Mathf.Max(cullDistance - hysteresis, 0f);
-            _cullWakeDistanceSq = wakeDistance * wakeDistance;
+            cullDistanceSq = distance * distance;
+            var hysteresis = Mathf.Min(MaxCullWakeHysteresis, distance * 0.1f);
+            var wakeDistance = Mathf.Max(distance - hysteresis, 0f);
+            wakeDistanceSq = wakeDistance * wakeDistance;
         }
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -51,16 +105,6 @@ internal static class ClientHudOptimisation
         // ReSharper disable once InconsistentNaming
         private static bool CombatHUDUpdateMarkersPrefix(CombatHUD __instance)
         {
-            var enabled = Plugin.ClientHudMarkerOptimisationEnabled.Value;
-            if (!enabled)
-            {
-                if (_wasEnabled)
-                    RestoreAll();
-                _wasEnabled = false;
-                return true;
-            }
-            
-            _wasEnabled = true;
             var aircraft = __instance.aircraft;
             var cameraState = SceneSingleton<CameraStateManager>.i;
             if (aircraft == null || cameraState == null || cameraState.mainCamera == null)
@@ -78,6 +122,7 @@ internal static class ClientHudOptimisation
             var followedUnit = cameraState.followingUnit;
             var now = Time.unscaledTime;
             UpdateJammingAudio(__instance);
+            var jamAcc = __instance.jamAccumulation;
             var markers = __instance.markers;
             var count = markers?.Count ?? 0;
             if (markers != null && count > 0)
@@ -102,7 +147,7 @@ internal static class ClientHudOptimisation
                     if (!ShouldRunUpdate(marker, ref state, isNew, now))
                     {
                         FastReproject(marker, viewPosition, cameraForward, mainCamera, ref state);
-                        if (__instance.jamAccumulation > 0f) marker.JammingDistortion(__instance.jamAccumulation);
+                        if (jamAcc > 0f) marker.JammingDistortion(jamAcc);
                         VanillaIconsPlusCompat.SyncVisual(marker, ref state.VanillaIconsPlus);
                         continue;
                     }
@@ -110,7 +155,7 @@ internal static class ClientHudOptimisation
                     marker.UpdatePosition(networkHq, viewPosition, cameraForward);
                     RefreshKnownPosition(marker, networkHq, ref state);
                     VanillaIconsPlusCompat.CaptureState(marker, ref state.VanillaIconsPlus);
-                    if (__instance.jamAccumulation > 0f) marker.JammingDistortion(__instance.jamAccumulation);
+                    if (jamAcc > 0f) marker.JammingDistortion(jamAcc);
                     VanillaIconsPlusCompat.SyncVisual(marker, ref state.VanillaIconsPlus);
                     ScheduleNextUpdate(ref state, isNew, now);
                 }
@@ -118,9 +163,7 @@ internal static class ClientHudOptimisation
                 UpdateOneMarkerVisibility(__instance, markers, count, networkHq, viewPosition);
             }
             
-            __instance.jamAccumulation = Mathf.Clamp01(__instance.jamAccumulation -
-                                                       Mathf.Max(__instance.jamAccumulation, 0.25f) * Time.deltaTime);
-            
+            __instance.jamAccumulation = Mathf.Clamp01(jamAcc - Mathf.Max(jamAcc, 0.25f) * Time.deltaTime);
             return false;
         }
         
@@ -150,7 +193,6 @@ internal static class ClientHudOptimisation
             
             if (!marker.image.enabled)
                 marker.image.enabled = true;
-            
             var markerTransform = state.MarkerTransform;
             if (markerTransform == null)
                 return;
@@ -168,7 +210,8 @@ internal static class ClientHudOptimisation
                 return;
             }
             
-            if (!hq.TryGetKnownPosition(marker.unit, out var knownPosition)) return;
+            if (!hq.TryGetKnownPosition(marker.unit, out var knownPosition))
+                return;
             
             state.KnownPosition = knownPosition;
             state.HasKnownPosition = true;
@@ -196,7 +239,6 @@ internal static class ClientHudOptimisation
             {
                 if (state.Culled)
                     RestoreMarker(ref state);
-                
                 if (state.Tier != ClientActivityTier.Full)
                 {
                     state.Tier = ClientActivityTier.Full;
@@ -210,6 +252,7 @@ internal static class ClientHudOptimisation
             if (!force && now < state.NextTierRefresh)
                 return;
             
+            state.IsNeutral = marker.unit.NetworkHQ == null;
             var delta = marker.unit.transform.position - cameraPosition;
             var distanceSq = delta.sqrMagnitude;
             UpdateCullState(marker, ref state, distanceSq);
@@ -225,14 +268,23 @@ internal static class ClientHudOptimisation
         
         private static void UpdateCullState(HUDUnitMarker marker, ref MarkerScheduleState state, float distanceSq)
         {
-            if (_cullDistanceSq <= 0f)
+            var cullDistanceSq = _cullDistanceSq;
+            var wakeDistanceSq = _cullWakeDistanceSq;
+            if (state.IsNeutral && _neutralCullDistanceSq > 0f &&
+                (cullDistanceSq <= 0f || _neutralCullDistanceSq < cullDistanceSq))
+            {
+                cullDistanceSq = _neutralCullDistanceSq;
+                wakeDistanceSq = _neutralCullWakeDistanceSq;
+            }
+            
+            if (cullDistanceSq <= 0f)
             {
                 if (state.Culled)
                     RestoreMarker(ref state);
                 return;
             }
             
-            var thresholdSq = state.Culled ? _cullWakeDistanceSq : _cullDistanceSq;
+            var thresholdSq = state.Culled ? wakeDistanceSq : cullDistanceSq;
             var shouldCull = distanceSq >= thresholdSq;
             if (shouldCull == state.Culled)
                 return;
@@ -259,7 +311,6 @@ internal static class ClientHudOptimisation
             state.Culled = false;
             state.NextUpdate = 0f;
         }
-        
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static bool ShouldRunUpdate(HUDUnitMarker marker, ref MarkerScheduleState state, bool isNew, float now)
@@ -343,9 +394,10 @@ internal static class ClientHudOptimisation
         
         private static void UpdateJammingAudio(CombatHUD hud)
         {
+            var jamAcc = hud.jamAccumulation;
             if (hud.jammedSource == null)
             {
-                if (hud.jamAccumulation <= 0f)
+                if (jamAcc <= 0f)
                     return;
                 
                 hud.jammedSource = hud.gameObject.AddComponent<AudioSource>();
@@ -359,15 +411,15 @@ internal static class ClientHudOptimisation
                 return;
             }
             
-            if (hud.jamAccumulation == 0f)
+            if (jamAcc == 0f)
                 hud.jammedSource.Stop();
-            if (hud.jamAccumulation <= 0f)
+            if (jamAcc <= 0f)
                 return;
             
-            hud.jammedSource.volume =
-                FastMath.SmoothDamp(hud.jammedSource.volume, hud.jamAccumulation, ref hud.smoothVel, 0.5f) *
-                hud.jammedVolumeMultiplier;
-            if (hud.jammedSource.isPlaying) return;
+            hud.jammedSource.volume = FastMath.SmoothDamp(hud.jammedSource.volume, jamAcc,
+                ref hud.smoothVel, 0.5f) * hud.jammedVolumeMultiplier;
+            if (hud.jammedSource.isPlaying)
+                return;
             
             hud.jammedSource.Play();
             hud.jammedSource.time = Random.Range(0f, hud.jammedSound.length);
@@ -375,9 +427,7 @@ internal static class ClientHudOptimisation
         
         private static void RestoreCulledMarkers()
         {
-            for (var i = 0;
-                 i < _states.Length;
-                 i++)
+            for (var i = 0; i < _states.Length; i++)
             {
                 ref var state = ref _states[i];
                 if (state.Culled)
@@ -389,7 +439,6 @@ internal static class ClientHudOptimisation
         {
             RestoreCulledMarkers();
             _states = [];
-            _wasEnabled = false;
         }
         
         private struct MarkerScheduleState
@@ -403,6 +452,7 @@ internal static class ClientHudOptimisation
             internal GlobalPosition KnownPosition;
             internal bool HasKnownPosition;
             internal bool Culled;
+            internal bool IsNeutral;
             internal VanillaIconsPlusHudState VanillaIconsPlus;
         }
     }

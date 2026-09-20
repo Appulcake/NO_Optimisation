@@ -10,22 +10,11 @@ internal static class ClientPresentationManager
     private static readonly ConditionalWeakTable<Unit, PresentationState> States = new();
     private static readonly ConditionalWeakTable<AudioSource, Unit> AudioOwners = new();
     private static int _nextUnitIndex;
-    private static bool _wasEnabled;
     
     private static PresentationState CreateState(Unit _) => new();
     
     internal static void Tick()
     {
-        var enabled = Plugin.ClientPresentationOptimisationEnabled.Value;
-        if (!enabled)
-        {
-            if (_wasEnabled)
-                RestoreAll();
-            _wasEnabled = false;
-            return;
-        }
-        
-        _wasEnabled = true;
         var cameraState = SceneSingleton<CameraStateManager>.i;
         if (cameraState == null)
             return;
@@ -41,7 +30,6 @@ internal static class ClientPresentationManager
         var checks =
             Mathf.Clamp(Mathf.CeilToInt(units.Count * Mathf.Max(Time.unscaledDeltaTime, 0.001f) / TargetSweepInterval),
                 1, Mathf.Min(MaxChecksPerFrame, units.Count));
-        
         for (var i = 0; i < checks; i++)
         {
             if (units.Count == 0)
@@ -78,7 +66,7 @@ internal static class ClientPresentationManager
     
     internal static bool IsSleeping(Unit unit)
     {
-        if (unit == null || !Plugin.ClientPresentationOptimisationEnabled.Value)
+        if (unit == null)
             return false;
         
         return States.TryGetValue(unit, out var state) && state.Sleeping;
@@ -96,7 +84,6 @@ internal static class ClientPresentationManager
     internal static void RestoreAll()
     {
         var units = UnitRegistry.allUnits;
-        
         if (units != null)
             foreach (var unit in units)
             {
@@ -108,15 +95,11 @@ internal static class ClientPresentationManager
             }
         
         _nextUnitIndex = 0;
-        _wasEnabled = false;
     }
     
     internal static bool ShouldBlockAudioPlayback(AudioSource source)
     {
-        if (source == null || !Plugin.ClientPresentationOptimisationEnabled.Value)
-            return false;
-        
-        if (!AudioOwners.TryGetValue(source, out var unit) || unit == null)
+        if (source == null || !AudioOwners.TryGetValue(source, out var unit) || unit == null)
             return false;
         
         return States.TryGetValue(unit, out var state) && state.Sleeping;
@@ -204,11 +187,9 @@ internal static class ClientPresentationManager
             foreach (var state in _renderers)
                 if (state.Component != null)
                     state.Component.forceRenderingOff = state.ForceRenderingOff;
-            
             foreach (var state in _trails)
                 if (state.Component != null)
                     state.Component.emitting = state.Emitting;
-            
             foreach (var state in _particles)
             {
                 if (state.Component == null)

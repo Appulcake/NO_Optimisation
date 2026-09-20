@@ -9,7 +9,7 @@ public static class LaserSelfDamageFix
     //
     // With PRF, the vanilla Laser.FixedUpdate() is already patched to use this
     
-    private const int RaycastBufferSize = 64;
+    private const int RaycastBufferSize = 128;
     private static readonly RaycastHit[] RaycastBuffer = new RaycastHit[RaycastBufferSize];
     
     public static bool LinecastIgnoringOwner(Vector3 start, Vector3 end, out RaycastHit hitInfo, int layerMask,
