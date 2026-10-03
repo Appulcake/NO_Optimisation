@@ -1,7 +1,7 @@
 using NO_OPT.Modules;
 using UnityEngine;
 
-namespace NO_OPT.Server;
+namespace NO_OPT.HeadlessServer;
 
 [OptimisationModule(ModuleScope.Headless, "Headless Server", "0. Enable Headless Server Patches", LiveToggle = false)]
 internal sealed partial class HeadlessServerOptimisations : OptimisationModule

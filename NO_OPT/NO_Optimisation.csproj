@@ -10,13 +10,13 @@
         <PackageId>Apul.NO_Optimisation</PackageId>
         <Title>NO_Optimisation</Title>
         <Description>A mod to optimise Nuclear Option.</Description>
-        <Version>0.34.2.3</Version>
+        <Version>0.34.2.4</Version>
         <Authors>Appulcake</Authors>
         <PackageTags>nuclear;option;bepinex</PackageTags>
 
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <PackageProjectUrl>https://github.com/Appulcake/NO_Server_Balancer</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/Appulcake/NO_Server_Balancer</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/Appulcake/NO_Optimisation</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/Appulcake/NO_Optimisation</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
 
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -33,6 +33,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="AssetsTools.NET" Version="3.0.5" />
         <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3" PrivateAssets="all" ExcludeAssets="runtime"/>
         <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all"/>
         <PackageReference Include="BepInEx.Core" Version="5.*"/>
@@ -51,6 +52,9 @@
         <Reference Include="UnityEngine.UI" HintPath="$(Game_Path)\UnityEngine.UI.dll" Private="False" Publicize="True"/>
         <Reference Include="Unity.TextMeshPro" HintPath="$(Game_Path)\Unity.TextMeshPro.dll" Private="False" Publicize="True"/>
         <Reference Include="UniTask" HintPath="$(Game_Path)\UniTask.dll" Private="False" Publicize="True"/>
+        <Reference Include="Unity.Addressables" HintPath="$(Game_Path)\Unity.Addressables.dll" Private="False" Publicize="True"/>
+        <Reference Include="Unity.ResourceManager" HintPath="$(Game_Path)\Unity.ResourceManager.dll" Private="False" Publicize="True"/>
+        <Reference Include="com.rlabrecque.steamworks.net" HintPath="$(Game_Path)\com.rlabrecque.steamworks.net.dll" Private="False" Publicize="True"/>
     </ItemGroup>
 
     <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
@@ -58,8 +62,16 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Compile Remove="Server\MemoryDiagnostics.cs" />
-      <None Include="Server\MemoryDiagnostics.cs" />
+      <Compile Remove="Server\GroundVehicleOptimisations.cs" />
+      <None Include="Server\GroundVehicleOptimisations.cs" />
+      <Compile Remove="HeadlessServer\MemoryDiagnostics.cs" />
+      <None Include="HeadlessServer\MemoryDiagnostics.cs" />
+      <Compile Remove="Client\ClientLiveryDiagnostics.cs" />
+      <None Include="Client\ClientLiveryDiagnostics.cs" />
+      <Compile Remove="Client\ClientUiDiagnostics.cs" />
+      <None Include="Client\ClientUiDiagnostics.cs" />
+      <Compile Remove="Client\ClientUiDiagnosticsModule.cs" />
+      <None Include="Client\ClientUiDiagnosticsModule.cs" />
     </ItemGroup>
 
     <Target Name="PostBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' AND '$(ModDestination)' != ''">

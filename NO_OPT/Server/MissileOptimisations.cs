@@ -5,9 +5,9 @@ using HarmonyLib;
 using NO_OPT.Modules;
 using UnityEngine;
 
-namespace NO_OPT.Generic;
+namespace NO_OPT.Server;
 
-[OptimisationModule(ModuleScope.Any, "--- Generic ---", "0. Enable Missile Optimisation Patches",
+[OptimisationModule(ModuleScope.Any, "--- Server ---", "0. Enable Missile Optimisation Patches",
     true, "Optimises missile (especially cruise missile) simulation, only relevant for " +
           "host/server (inert on non-host client, including the Cruise Missile settings category).", LiveToggle = false)]
 internal sealed class MissileOptimisations : OptimisationModule
@@ -38,11 +38,14 @@ internal sealed class MissileOptimisations : OptimisationModule
     
     protected override void Configure()
     {
-        _groupByOwnerConfig = Config.Bind("--- Generic - Cruise Missile ---", "1. Group Formation By Owner", true);
-        _launchProximityConfig = Config.Bind("--- Generic - Cruise Missile ---", "2. Group Formation Launch Distance", 10000f);
-        _etaWindowConfig = Config.Bind("--- Generic - Cruise Missile ---", "3. Group Formation ETA Window", 15f);
-        _cruiseRetargetingConfig = Config.Bind("--- Generic - Cruise Missile ---", "4. Retarget Destroyed Targets", false);
-        _cruiseRetargetRangeConfig = Config.Bind("--- Generic - Cruise Missile ---", "4. Retarget Group Range", 7500f);
+        _groupByOwnerConfig = Config.Bind("--- Server - Cruise Missile ---", "1. Group Formation By Owner", true);
+        _launchProximityConfig = Config.Bind("--- Server - Cruise Missile ---", "2. Group Formation Launch Distance", 7500f);
+        _etaWindowConfig = Config.Bind("--- Server - Cruise Missile ---", "3. Group Formation ETA Window", 10f);
+        _cruiseRetargetingConfig = Config.Bind("--- Server - Cruise Missile ---", "4. Retarget Destroyed Targets", false,
+            "Optional feature, doesn't increase performance. When a cruise missile's target is destroyed while " + 
+            "it's still in pre-terminal phase, if this is enabled it'll allow retargeting another target from its fellow " + 
+            "formation missiles (only those fired by the same unit, same type of missile, and nearby).");
+        _cruiseRetargetRangeConfig = Config.Bind("--- Server - Cruise Missile ---", "4. Retarget Group Range", 7500f);
     }
     
     protected override void OnEnable()
@@ -471,6 +474,44 @@ internal sealed class MissileOptimisations : OptimisationModule
                 __instance.knownPos += __instance.knownVel * Time.fixedDeltaTime;
             }
             
+            return false;
+        }
+        
+        [HarmonyPatch(typeof(InertialSeekerShell),nameof(InertialSeekerShell.UpdateTargetPosition))]
+        [HarmonyPrefix]
+        // ReSharper disable once InconsistentNaming
+        private static bool InertialSeekerShellUpdateTargetPositionPrefix(InertialSeekerShell __instance)
+        {
+            // Shockfront pls null check here or these shells will forever keep throwing NREs when their target unit
+            // no longer exists, and they'll be stuck not steering, detecting collisions, changing course etc
+            return SanitiseInertialShellTarget(__instance);
+        }
+        
+        [HarmonyPatch(typeof(InertialSeekerShell), nameof(InertialSeekerShell.SlowChecks))]
+        [HarmonyPrefix]
+        // ReSharper disable once InconsistentNaming
+        private static void InertialSeekerShellSlowChecksPrefix(InertialSeekerShell __instance)
+        {
+            SanitiseInertialShellTarget(__instance);
+        }
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool SanitiseInertialShellTarget(InertialSeekerShell seeker)
+        {
+            if (seeker.targetUnit != null)
+                return true;
+            
+            // This protects against NREs in InertialSeekerShell.SlowChecks() where it blindly runs
+            // this.missile.NetworkHQ.IsTargetBeingTracked(this.targetUnit) and
+            // this.missile.NetworkHQ.IsTargetLased(this.targetUnit)
+            // Without null checking for targetUnit which can run into NREs
+            // If the target is null, then setting useDatalink and useLaser properties of that seeker to false
+            // stops both of those checks early before an NRE, as there's no longer a need for either of those anyway
+            // if the target stops existing
+            
+            seeker.targetUnit = null;
+            seeker.useDatalink = false;
+            seeker.useLaser = false;
             return false;
         }
     }

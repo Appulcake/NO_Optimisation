@@ -8,7 +8,7 @@ using Rewired;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
 
-namespace NO_OPT.Server;
+namespace NO_OPT.HeadlessServer;
 
 internal sealed partial class HeadlessServerOptimisations
 {
@@ -84,6 +84,9 @@ internal sealed partial class HeadlessServerOptimisations
             AddTarget(targets, typeof(Ship), nameof(Ship.UpdateParticles));
             AddTarget(targets, typeof(EjectionSeat), nameof(EjectionSeat.FireEffects));
             AddTarget(targets, typeof(IRFlare), nameof(IRFlare.Emit), typeof(float), typeof(Vector3));
+            
+            // Misc
+            AddTarget(targets, typeof(GroundVehicle), nameof(GroundVehicle.Update));
             
             return targets;
         }

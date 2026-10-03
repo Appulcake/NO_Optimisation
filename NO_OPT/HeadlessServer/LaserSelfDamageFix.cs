@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NO_OPT.Server;
+namespace NO_OPT.HeadlessServer;
 
 public static class LaserSelfDamageFix
 {

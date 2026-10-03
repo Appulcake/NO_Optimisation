@@ -5,7 +5,7 @@ using HarmonyLib;
 using JetBrains.Annotations;
 using UnityEngine;
 
-namespace NO_OPT.Server;
+namespace NO_OPT.HeadlessServer;
 
 internal sealed partial class HeadlessServerOptimisations
 {

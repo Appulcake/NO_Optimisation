@@ -1,7 +1,7 @@
 using HarmonyLib;
 using UnityEngine;
 
-namespace NO_OPT.Server;
+namespace NO_OPT.HeadlessServer;
 
 internal sealed partial class HeadlessServerOptimisations
 {

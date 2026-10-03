@@ -1,8 +1,9 @@
 using Cysharp.Threading.Tasks;
 using HarmonyLib;
+using NO_OPT.Compatibility;
 using UnityEngine;
 
-namespace NO_OPT.Server;
+namespace NO_OPT.HeadlessServer;
 
 internal sealed partial class HeadlessServerOptimisations
 {
@@ -112,7 +113,8 @@ internal sealed partial class HeadlessServerOptimisations
                 DamageParticles.fireColliders);
             for (var i = 0; i < count; i++)
                 if (DamageParticles.fireColliders[i].TryGetComponent<IDamageable>(out var damageable))
-                    damageable.TakeDamage(0f, 0f, 1f, __instance.fireDamage, 0f, PersistentID.None);
+                    GwWeaponDamageCompatibility.TakeDamage(damageable, 0f, 0f, 1f,
+                        __instance.fireDamage, 0f, PersistentID.None, "Fire");
             return false;
         }
         
@@ -167,10 +169,11 @@ internal sealed partial class HeadlessServerOptimisations
             var num2 = 25000f / (num * num * num);
             if (num2 > 0.5f)
             {
+                var weaponName = GwWeaponDamageCompatibility.GetShockwaveWeaponName(__instance);
                 for (var num3 = __instance.influencedObjects.Count - 1; num3 >= 0; num3--)
-                    if (__instance.influencedObjects[num3].HasShockwaveReached(__instance.transform.position,
-                            __instance.blastPropagation, num2, __instance.yieldKilotons * 1000000f,
-                            __instance.blastPower, __instance.ownerID))
+                    if (GwWeaponDamageCompatibility.HasShockwaveReached(__instance.influencedObjects[num3],
+                            __instance.transform.position, __instance.blastPropagation, num2,
+                            __instance.yieldKilotons * 1000000f, __instance.blastPower, __instance.ownerID, weaponName))
                         __instance.influencedObjects.RemoveAt(num3);
             }
             else
@@ -384,8 +387,10 @@ internal sealed partial class HeadlessServerOptimisations
                     {
                         __instance.lastDamageTick = Time.timeSinceLevelLoad;
                         var num3 = __instance.damageAtRange.Evaluate(hitInfo.distance) * num2;
-                        component.TakeDamage(0f, __instance.blastDamage * num3 * 0.2f, 1f,
-                            __instance.fireDamage * num3 * 0.2f, 0f, __instance.attachedUnit.persistentID);
+                        GwWeaponDamageCompatibility.TakeDamage(component, 0f,
+                            __instance.blastDamage * num3 * 0.2f, 1f,
+                            __instance.fireDamage * num3 * 0.2f, 0f,
+                            __instance.attachedUnit.persistentID, __instance.info.weaponName);
                     }
                 }
                 
